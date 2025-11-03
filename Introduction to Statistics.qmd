@@ -1,0 +1,652 @@
+---
+title: "Introduction to Statistics"
+author: "Becky Collins"
+format: html
+editor: visual
+---
+
+## Introduction to Statistics
+
+Following the lecture you should now have some understanding of why statistics are important and how we use them to help us to answer scientific hypotheses.
+
+In this session I am going to walk you through a very simple example of how to generate descriptive statistics, how to test for differences between groups, how to test for correlations and finally how to perform and interpret the results of both a univariate and multivariate linear regression.
+
+At the end of the session there will be an exercise for you to have a go at that will not only get you to perform the appropriate statistics but also to combine this with some of the thematic mapping and testing of spatial autocorrelation you have been doing with Rich in the previous weeks. **This lecture and practical have been written to cover both week 7 and week 8 of the teaching. If you complete everything this week then week 8 can be used as a support session for your assessment!**
+
+**One quick note** - There are as many different approaches to coding as there are people who code! You may notice significant differences between my way of working in R and what you have seen up to now! Part of this is experience - Rich has been coding significantly longer than I have, as I came to it only when necessity forced me away from my beloved GIS! I am also completely self-taught in this area, building skills as and when I needed them in a somewhat haphazard way!
+
+The other part is personal preference - I loathe ggplot for mapping but love tmap; I do not like tidyverse but love base R. I tend not to use pipes but instead code in smaller chunks. It leaves me with a slightly busier global environment but means I find it much easier to track back when things go wrong. There is no one way to do things, simply what works for you!
+
+The point here is that you may find this a slightly different style of handout than you have been used to, and that is good! You are being exposed to multiple ways to do things and multiple styles of teaching and learning! Embrace it!
+
+Right - let's get started!
+
+## Downloading and visualising the data
+
+As in previous weeks, the first step is to make sure our required packages are installed and loaded and that we can download and open the data. Unlike in previous sessions I actually want you to manually download a zipped folder from blackboard and unzip it into your project directory.
+
+The folder for this part of the practical is called "IMD_2019" and can be found on Blackboard under the same section you found this handout, 'Intro to Statistics'.
+
+Download the folder and unzip it directly into your project folder. As mentioned in previous sessions, shapefiles have multiple component parts to them and although we only OPEN one of the files, all of the other component files must be in the same place to allow the data to work!
+
+Once the data is imported we would usually view the head of the data (the variable names and the top few rows) however this dataset has over 60 variables, meaning that printing the head of the data will not show us all we want to know.
+
+Instead, we can get a list of the variable names and the data format. To do this we use `str()` to show us the structure of our data.
+
+```{r package installation, warning=FALSE, message=FALSE}
+installed <- installed.packages()[,1]
+pkgs <- c("tidyverse", "sf", "RColorBrewer", "ggplot2", "cowplot", "scales")
+install <- pkgs[!(pkgs %in% installed)]
+if(length(install)) install.packages(install, dependencies = TRUE)
+invisible(lapply(pkgs, require, character.only = TRUE))
+
+IMD_2019 <- IMD_2019 <- read_sf("IMD_2019_A.shp")
+str(IMD_2019)
+```
+
+This shows us that we have some character variables that represent the area names and codes, or identifiers, and a long series of numeric variables that represent the Index of Multiple Deprivation (IMD) data. This also shows us that some of our numeric data is integer data (non-decimal numbers) and some is continuous data (decimal numbers).
+
+To give you a little background, this data measures a series of variables that are considered to be indicators of deprivation. The higher a 'score' value, the higher the deprivation is in that area. The lower the 'rank' value is, the higher the deprivation - as areas are ranked from most deprived (1) to least deprived (32844). The variables that begin IMD are a combined measure of all of the indicator indices, whereas each individual indicator has it's own set of values. Finally the 'decile' variables group each LSOA into deciles where the higher the deprivation the lower the decile (the place ranked most deprived would have a decile of 1, while the place ranked least deprived would have a decile of 10).
+
+## Mapping the Data
+
+Let's begin by plotting the most simple map of the "IMDRank0" variable using some lightly edited code from a previous practical.
+
+You may notice that I have added `color = NA` inside the `geom_sf()` function. This is because the `geom_sf()` function would plot the outlines of the polygons within the shapefile, however on a map of this national scale and with polygons that are so small by comparison to the coverage area, the polygon outlines just create a large mass of grey. By including the `color = NA` argument I have suppressed the lines to make the fill colours easier to see.
+
+```{r initial map}
+ggplot(IMD_2019, aes(fill = IMDRank0)) +
+  geom_sf(color = NA) +
+  scale_fill_distiller("IMD Rank", palette = "RdYlBu", direction = 1) +
+  theme_minimal() +
+  labs(
+    title = "English Index of Multiple Deprivation",
+    subtitle = "2019 IMD Rank by LSOA",
+    caption = "Source: data.gov.uk"
+  ) 
+```
+
+But this doesn't really do much to help us understand the statistics of the data. It was just a quick warm up exercise before we dive in!
+
+# Summarising Data
+
+### Measures of Central Tendency and Measures of Dispersion
+
+As in the lecture, descriptive statistics are methods by which we can begin to describe the middle of our data (measures of central tendency) and the spread of our data (measures of dispersion).
+
+R is very handy for providing very quick methods to acquire summary statistics in the form of the `summary()` function.
+
+```{r summary}
+summary(IMD_2019$IMDScore)
+```
+
+The output of this function tells us a great deal about the data. Firstly, we can establish the range of our data by subtracting the Min. value from the Max. value, telling us that we have a range of 92.194. We can also see that the mean is higher than the median, indicating that there are some high values that are skewing our mean upwards away from the middle value.
+
+This doesn't, however, tell us much about the dispersion of our data. To establish this we can calculate the Variance, it's square root the Standard Deviation and the Coefficient of Variation.
+
+```{r st dev and var}
+
+Variance <- var(IMD_2019$IMDScore)
+S.Dev <- sd(IMD_2019$IMDScore)
+CoV <- sd(IMD_2019$IMDScore/mean(IMD_2019$IMDScore))*100
+
+Variance
+S.Dev
+CoV
+```
+
+The (relatively) high values of the variance and the standard deviation and the high percentage Coefficient of Variation tell us that there is considerable spread of our data around the mean.
+
+Visually, the best way to represent this is on a histogram.
+
+```{r histogram}
+Hist <- IMD_2019 |>
+  ggplot(aes(x = IMDScore)) +
+    geom_histogram(colour = "black", fill = "grey", binwidth = 2) +
+    geom_rug(linewidth = 0.5) +
+    geom_vline(aes(xintercept = 17.4),
+             color = "red", linetype = "dashed", linewidth = 1) + 
+    geom_vline(aes(xintercept = 21.4),
+             color = "blue", linetype = "dotted", linewidth = 1) +
+    labs(x = "IMD Score", y = "Frequency",
+         title = "England IMD Scores 2019") +
+    scale_colour_discrete(name = "LADnm") +
+    theme_minimal() +
+    theme(panel.grid.major.y = element_blank())
+
+Hist
+```
+
+You can see that I have added two vertical lines to the histogram to represent the median (red dashed) and mean (blue dotted) values. This, along with the shape of our data tell us that the data has a positive (or right) skew - with more of the data appearing to the right of the peak, or a prevalence of high values within the dataset. You can also see that the data is spread out and does not cluster closely around either median or mean values.
+
+### Outliers
+
+It is often a good idea to establish whether your data contains any outliers. An outlier is typically considered to be a value that is more than 1.5 x the IQR (interquartile range) away from the Q1 (lower) or Q3 (upper) values of your dataset.
+
+We already have the Q1 and Q3 values thanks to the outcome of our `summary()` function. We can use another function `IQR()` to calculate the IQR of our data. From there we can do some simple maths to determine whether our variable contains any outliers.
+
+```{r calculating outliers}
+summary_stats = as.vector(summary(IMD_2019$IMDScore))
+IQR_mult <- IQR(IMD_2019$IMDScore) * 1.5
+Lower_bound = summary_stats[2] - IQR_mult
+Upper_bound = summary_stats[5] + IQR_mult
+
+Lower_bound
+Upper_bound
+
+# this returns the sum of a logical test where any value greater than our upper bound gets a value of 1 and all other values get 0. It is a quick way of counting the number of observations that meet a specific condition.
+sum(IMD_2019$IMDScore > 58.32)
+```
+
+This gives up the upper and lower bounds beyond which a value is deemed to *potentially* be an outlier and allows us to identify that there are 1085 potential outliers in our dataset.
+
+We will come back to that word potentially in a moment.
+
+A boxplot is a useful way to show some of the key descriptive statistics as it displays the median value (the black line), the middle 50% of the data (the box), the Minimum and Maximum bounds based on the IQR \* 1.5 rule (the whiskers) and any outliers (dots beyond the whiskers).
+
+```{r boxplot}
+
+Box <- ggplot(IMD_2019, aes(x = IMDScore)) +
+  geom_boxplot() +
+  labs(x = "IMD_Score",
+       title = "Spread of IMD Score") +
+  theme_minimal()
+
+Box
+```
+
+Let's go back to that word *potentially*. The method we have used to identify the presence of outliers to this point (identifying the upper and lower bounds and plotting on a boxplot) are both using arbitrary methods and values to define what an outlier is. However, should we arbitrarily dismiss approx 3% of our data?
+
+Let's take another look at the histogram and the boxplot together.
+
+```{r hist and box side by side}
+
+plot_grid(Hist, Box, ncol = 1)
+```
+
+We can see from these two plots that there are no breaks in the data as you move into the tail of the histogram and that the outlier points are clustered very closely together from the end of the whisker. These are indicators that, while the outlier detection method may flag these points as potential outliers, that may not necessarily mean that they are outliers.
+
+To help make this a little clearer - imagine that you were creating a histogram of global income. This is a measure of a known value, and while the traditional method of IQR\*1.5 would cut off the Elon Musk's and the Jeff Bezos of the world, they are not actually outliers because their income does represent an actual measurement. However, if you were performing a laboratory analysis of the concentration of nitrogen in a water sample, a sudden high value in the billions while all others were in the 10s of thousands would certainly be identified as an outlier caused by error.
+
+Any decision you make, whether to keep or remove potential outliers, should be made with an understanding of the data you are working with and the statistical test you are planning to perform.
+
+# Inferential Statistics
+
+There are a vast number of potential statistical tests that can be performed on a wide variety of different data types, but for the purposes of this session I am going to break them into two concepts:
+
+**Looking for differences between groups** - e.g. comparing between different genders, different age groups, different climate models, different river catchments etc
+
+**Looking for relationships between variables** - e.g. if temperature increases do drink sales increase? If river flow increases does dissolved oxygen decrease?
+
+We are going to start by looking for differences between groups - initially to see whether there is a statistically significant difference in the deprivation scores of the North East and the West Midlands and then expand that across all groups.
+
+### T-Test or Mann-Whitney U Test
+
+When comparing the averages of two groups to determine whether they are statistically significantly different, we usually use the T-Test. This, in simple terms, compares the mean of the two groups and determines whether that difference is statistically significant. However, the T-Test is what is known as a Parametric test - one that is optimised for normally distributed data.
+
+We have determined - albeit only visually - that this data is not normally distributed. The mean and median are different and the histogram has a right skew (there are more values to the right of the peak than to the left). In this instance we would instead use the non-parametric version - the Mann-Whitney U test. The difference between the T-test and the MWU test is that the MWU test compares the ranks of the data rather than the means.
+
+First, we need to extract the two regions we are interested in as the MWU test only works with two groups, then we can execute the test. Confusingly, the function to perform the MWU test is called `wilcox.test()`! Once we have the results it would also be useful to see the calculated mean and median of each group to see what the values actually are.
+
+```{r mann whitney U test}
+NEandWM <- IMD_2019 %>%
+  filter(RGN24NM %in% c("North East", "West Midlands"))
+
+wilcox.test(formula = IMDScore~RGN24NM, data = NEandWM, alternative = "two.sided", exact = FALSE)
+
+NEandWM %>%
+  st_drop_geometry() %>%
+  group_by(RGN24NM) %>%
+  summarise(
+    mean_IMD = mean(IMDScore, na.rm = TRUE),
+    median_IMD = median(IMDScore, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+The results of this test may look very confusing, and they can be a bit challenging to get your head around initially. The values of interest to us here are the W statistic and the p-value.
+
+The W statistic is the sum of the ranks of your first group (in this case North East because it appears first in the dataset) if all of the values were lined up in order and the values of their rank position was summed. For example, look at the table below. In this example, the North East has positions 3 + 5 + 6 + 7 giving them a rank sum of 21 while the West Midlands has positions 1 + 2 + 4 + 8 giving them a rank sum of 15. That lower rank sum tells you that the West Midlands has more values in the lower range of our dataset than the North East.
+
+| Region        | Value | Position |
+|---------------|-------|----------|
+| West Midlands | 1     | 1        |
+| West Midlands | 2     | 2        |
+| North East    | 3     | 3        |
+| West Midlands | 4     | 4        |
+| North East    | 5     | 5        |
+| North East    | 6     | 6        |
+| North East    | 7     | 7        |
+| West Midlands | 8     | 8        |
+
+This value doesn't really mean much on it's own as it is a function of the number of possible positions (or observations) in the data, but the p-value tells us the likelihood that this W value would be generated if the groups came from the same distribution (i.e. had the same extremes and the same shape).
+
+It may be helpful to also view the distribution on a histogram to make this easier to understand.
+
+```{r regional  hist}
+
+ggplot(NEandWM, aes(x = IMDScore, fill = RGN24NM)) +
+  geom_density(alpha = 0.4) +
+  labs(
+    title = "IMD Score Distributions by Region",
+    x = "IMD Score",
+    y = "Density",
+    fill = "Region"
+  ) +
+  theme_minimal()
+```
+
+We can see that there are significantly more West Midlands areas with lower IMD scores than the North East, and that the very small p-value of the test also suggests that there is a statistically significant difference between the two groups.
+
+### Testing multiple groups with ANOVA or Kruskal Wallis
+
+We can also do a similar analysis across multiple groups using the ANOVA (parametric) or the Kruskal Wallis (non-parametric) tests. The Kruskal Wallis tests is very similar to the MWU test in that it also groups all of the data together and then ranks the values of each rank before summing those values. The slight difference is that the Chi-Squared test statistic actually uses the mean rank rather than the sum of the rank for comparison between groups so you can consider the statistic as the variance of the mean ranks. The smaller the value the more similar the mean rank across groups. but the larger the value the greater the differences between the values.
+
+Again, this is only really of value alongside the p-value, which tests the likelihood that the chi squared statistic could be generated from a random distribution. In the code below I have changed from a histogram to a density plot because they are slightly easier to interpret when overlaying multiple different datasets.
+
+```{r kw test}
+kruskal.test(formula = IMDScore ~ RGN24NM, data = IMD_2019)
+
+ggplot(IMD_2019, aes(x = IMDScore, fill = RGN24NM)) +
+  geom_density(alpha = 0.4) +
+  labs(
+    title = "IMD Score Distributions by Region",
+    x = "IMD Score",
+    y = "Density",
+    fill = "Region"
+  ) +
+  theme_minimal()
+```
+
+The only problem with this test is that it tells us there is a statistically significant difference between groups but doesn't tell us which groups are statistically different. To establish this information we need to perform what is known as a post hoc test - a test that unpicks the results of the Kruskal Wallis and give more detail about which groups are different or similar. Traditionally the Dunn test is used as the post hoc test for a Kruskal Wallis test, but in this example we are going to go with the slightly quicker pairwise MWU test approach, which performs a series of MWU tests on all possible pairs of groups and then reports the results as a matrix which we will then turn into a heat map of the significant and not significant pairings.
+
+```{r KW post hoc test}
+
+#Run the post hoc test
+post_hoc <- pairwise.wilcox.test(IMD_2019$IMDScore, IMD_2019$RGN24NM,
+                     p.adjust.method = "bonferroni")
+
+# Extract the p-values from the matrix produced by the pairwise test
+pvals_df <- as.data.frame(as.table(post_hoc$p.value)) %>%
+  filter(!is.na(Freq)) %>%
+  rename(Region1 = Var1, Region2 = Var2, p_value = Freq)
+
+# Classify the p-values into significant or not significant
+pvals_df <- pvals_df %>%
+  mutate(Significance = ifelse(p_value < 0.05, "Significant", "Not Significant"))
+
+# Plot a binary heat map showing which regions are significantly similar/different
+ggplot(pvals_df, aes(x = Region1, y = Region2, fill = Significance)) +
+  geom_tile(color = "white") +
+  scale_fill_manual(values = c("Significant" = "red", "Not Significant" = "grey80")) +
+  labs(
+    title = "Significant Pairwise Differences Between Regions",
+    x = "Region 1",
+    y = "Region 2",
+    fill = "Result"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+
+```
+
+What this shows us is that only the pairs North East and North West and West Midlands and Yorkshire and the Humber are significantly similar to one another. All other pairs of regions are significantly different from one another.
+
+### Relationships between variables
+
+Now we have spent some time looking at similarities and differences between groups, we can start to look for relationships between variables. Often, relationships between continuous variables can be established using correlations and scatter plots.
+
+**Quick note -** As touched on in the lecture, most statistics require that data be 'independent', or unrelated to one another, in order for the conclusions you draw from those statistics to be meaningful and robust. Because the IMD Rank, Score, and Decile values in this dataset are made up of a combination of all of the other variables they cannot be considered to be independent so from now on we will be looking for relationships between some of the different indicator variables used to make up the overall IMD value. One could argue that, because all of these variables are measures of deprivation then can any of them truly be independent of one another...however for now let's assume that they are!
+
+### Scatter Plots
+
+One of the main drivers of deprivation is income and, in simple terms, one of the main indicators of income is education level. So, let's look and see whether this data shows a similar relationship.
+
+```{r scatter plot}
+
+IMD_2019 %>%
+  ggplot(aes(x = EduScore, y = IncScore)) +
+  geom_point() +
+  geom_rug(linewidth = 0.5) +
+  labs(x = "Education Deprivation Score", y = "Income Deprivation Score",
+       title = "The relationship between income and education deprivation in England 2019") +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank())
+```
+
+As you can see from the plot, where the education deprivation score is low (indicating a low level of education deprivation - or a high level of education opportunity) so is the income deprivation score (indicating a low level of income deprivation - or a high level of income attainment).
+
+This is a positive relationship (as one increases so does the other). However, while the plot shows us that there appears to be a correlation, the only way to test that the relationship is statistically significant is via a statistical test - namely the Pearson (parametric) or Spearmans (non-parametric) tests. The spearmans rank test that we are using here once again ranks our two variables values (separately this time rather than combining them together) and then calculates the variance of each rank from the mean to determine how the data varies individually and then how similar those two variances are.
+
+In this example I have used the argument `exact = FALSE` to suppress a warning about ties. Ties are what happens when there are repeat values in your data and so multiple observations are given the same rank. It doesn't prevent the test from working, but it means that the p-value is an approximation and not an exact value. This can be problematic when the p-value is very close to the chosen significance level but in this instance an approximation is totally fine.
+
+```{r pearson correlation}
+
+cor.test(x = IMD_2019$IncScore, IMD_2019$EduScore, method = "spearman", exact = FALSE)
+```
+
+The output of the Spearman Rank correlation is the rho value. This is a value from +1 (perfect positive correlation - when one increases the other also increases) to -1 (perfect negative correlation - when one increases the other decreases). A rho value of 0 indicates that there is no correlation, the variables increase independently of one another.
+
+Correlations are great for telling us how two variables relate to each other, but you cannot use a correlation as a predictor. In order to begin to make predictions you need to carry out regression analysis.
+
+## Linear Regression
+
+### Univariate Linear Regression
+
+If you want to use one variable to predict another you need to use linear regression. The equation for linear regression is shown below:
+
+$$
+Y_i = \beta_0+\beta_1X_i+\varepsilon_i
+$$
+
+where:
+
+$Yi$ = the value of the dependent variable (Y) at the $i$th observation or location
+
+$\beta_0$ = the intercept value (the value of y if x is zero)
+
+$\beta_1$ = the slope coefficient of the independent variable $X$
+
+$X_i$ = The value of the independent variable at the $i$th observation or location
+
+$\varepsilon_i$ = The error value (or residual) at the $i$th observation or location
+
+With a correlation it does not matter which variable you treat as the dependent (or the response variable), however with regression it does matter. Your dependent variable (DV) is *dependent* on the independent (predictor) variable. It is the dependent variable you wish to be able to predict from your regression equation.
+
+Let's take the example we just used of Education Deprivation and Income Deprivation. We can generate a linear regression equation that would allow us to predict the value of the dependent variable (Income Deprivation) from the value of the independent variable (Education Deprivation).
+
+First, we create our linear regression model. If you look at the documentation for the `lm()` function using `?lm()` you will see that the first argument for a linear model is `formula`. Further down the guidance there is a section that states "Models for `lm` are specified symbolically. A typical model has the form `response ~ terms` where `response` is the (numeric) response vector and `terms` is a series of terms which specifies a linear predictor for `response`.". This means that you must first specify your dependent variable and then your independent variable(s). This is very important, because you will be used to writing things as x y, however in linear regression the y variable is the dependent variable, so you must start with that.
+
+```{r linear regression}
+
+linear_mod <- lm(formula = IncScore ~ EduScore, data = IMD_2019)
+
+summary(linear_mod)
+
+```
+
+In this summary you can see the `call` at the top, which reminds you of the components of your model, before you get a summary of the `residuals` which we will come back to in a moment. The next section is possibly the most important - the `coefficients`.
+
+This contains the value of the intercept (\$\\beta_0\$) and the value of the slope coefficient for your IVs. Both of these are stored in the 'Estimates' column. It also provides a p-value for each IV telling you whether each IV is statistically significantly contributing to the variation in your DV.
+
+So in this model the Intercept is 0.0367. This means that where the EduScore is zero you can expect the IncScore to be 0.0367.
+
+The value of the slope coefficient of education score is 0.00419. What this means is that "for a 1 unit change in the independent variable, EduScore, the dependent variable, IncScore, will change by 0.00419 in the same direction". If the coefficient was negative the change would occur in the opposite direction. We can interpret this as "If the education deprivation score increases by 1, the income deprivation score will increase by 0.00419". This shows us that as education score increases so does income deprivation score.
+
+The intercept and slope represent and linear relationship between our two variables. Let's quickly plot this on the previous scatter plot of our data.
+
+```{r scatter with model line}
+IMD_2019 %>%
+  ggplot(aes(x = EduScore, y = IncScore)) +
+  geom_point() +
+  geom_abline(intercept = 0.0367, slope = 0.00419, color = "red", linewidth = 1.2) +
+  geom_rug(linewidth = 0.5) +
+  labs(x = "Education Deprivation Score", y = "Income Deprivation Score",
+       title = "The relationship between income and education deprivation in England 2019") +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank())
+```
+
+We can see from the plot that this line runs right through the densest parts of our data and follows the positive trend very clearly. However, there is lots of variation around that line.
+
+The next section of the model output tells us the R-Squared values and the p-value. The multiple R-squared value does not account for model complexity so when you have only 1 IV it will be the same as the adjusted R-squared value, however if you add more IVs to your model the multiple R-squared will always either stay the same or increase even if your new variable adds nothing to the predictive power of your model. So instead, you should always look at the Adjusted R-squared, which adds a function to account for model complexity when there are more than one IV.
+
+In this model our Adjusted R-squared value is 0.696. This means that 69.6% of the variation in our DV can be explained by our IV. Another way of thinking of it is that 30.4% of the variation in our DV remains unexplained by our IV. Given the spread of our data around our modeled line, that seems to be reasonable. If the model had a perfect R-squared of 1 there would be no variation around the line at all.
+
+That unexplained variation can be represented by our residuals - the difference between the actual value of our DV and the predicted value based on our model.
+
+First, let's put our model values into the equation. Note that Y now wears a little hat (it is actually called the hat symbol). This indicates that we are now looking at a *predicted* value of Y and not an *actual* value of Y (as shown in the previous equation).
+
+$$
+\hat{Y}_i = 0.0367 + 0.00419X_i
+$$
+
+The way to think about this is "the predicted value of Y at i is equal to 0.0367 plus 0.00419 multiplied by the value of X at i". This is how we can now take the information from our linear model and begin to use it as a prediction method.
+
+So, let's say the value of X at i was 1 the equation would be:
+
+$$
+\hat{Y}_i = 0.0367 + (0.00419 * 1)
+$$
+
+or
+
+$$
+\hat{Y}_i = 0.0367 + 0.00419
+$$
+
+or
+
+$$
+\hat{Y}_i = 0.0409
+$$
+
+The `lm()` function actually calculates predicted Y values for all values of the IV as part of it's model and it uses them to then calculate our residuals, the difference between an actual Y value and the predicted Y value at each value of X. A residual is essentially:
+
+$$
+residual = Y_i - \hat{Y}_i
+$$
+
+or the actual (observed) value of Y minus the predicted value of Y. A negative residual is one where the model has over-predicted (the actual value of Y is smaller than the predicted value of Y) while a positive residual is one where the model has under-predicted (the actual value of Y is larger than the predicted value of Y).
+
+We can get a summary of our residuals by calling the residuals component of our model.
+
+```{r residuals}
+
+summary(linear_mod$residuals)
+
+```
+
+We can see that the mean of our residuals is zero - this is to be expected in an unbiased model as it means that there is no systematic under or over prediction of our model. It also helps to confirm that the data is linear - if the data would be better represented by a curved model you would likely see deviation from the zero mean in the residuals.
+
+We can use a density plot to view the distribution of the residuals. First we need to extract the residuals from the model and add them to the original dataframe as a variable for plotting. While we're doing that we can also extract the fitted values as we will need those later.
+
+```{r residuals density plot}
+
+IMD_2019 <- IMD_2019 %>%
+  mutate(
+    predicted = fitted(linear_mod),
+    residuals = resid(linear_mod)
+  )
+
+ggplot(IMD_2019, aes(x = residuals)) +
+  geom_density(alpha = 0.4) +
+  labs(
+    title = "Residual Distribution",
+    x = "Residual",
+    y = "Density",
+  ) +
+  theme_minimal()
+
+```
+
+Our density plot shows that the peak is just slightly to the left of zero, but that the distribution is largely normal. Non-normally distributed residuals indicate that the model over- or under-predicts more often and can show that there are systematic errors in the model definition.
+
+Another test we can use is the residuals vs fitted plot. This plots the residual values against the predicted (fitted) values and allows you to visually check that the spread of the residuals is the same at the bottom and top ends of the fitted values. If the points cluster around the horizontal line at both ends of the x axis then your residuals are homoskedastic - the spread of the residual error in your model is consistent across the range of your fitted values and the model is not systematically better in lower ranges than higher (or vice versa).
+
+```{r residuals vs fitted plot}
+
+ggplot(IMD_2019, aes(x = predicted, y = residuals)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted Values (Predicted Y)",
+    y = "Residuals (eᵢ)"
+  )
+```
+
+As we can see from the plot, this model is homoskedastic, visually the spread of the residuals is approximately equal along the full length of the x-axis.
+
+There are lots of other diagnostic tests you can use for linear regression models and this is a good area around which you can do some additional reading.
+
+### Multivariate Regression
+
+Now that you have some experience of univariate regression you can move into multivariate regression. Multivariate regression adds additional independent variables to your model to provide more explanatory power. Multivariate regression can be represented by the equation below:
+
+$$
+Y_i = \beta_0+\beta_1 X_{1i}+\beta_2 X_{2i}+\dots+\beta_p X{pi} +\varepsilon_i
+$$
+
+where:
+
+$Yi$ = the value of the dependent variable (Y) at the $i$th observation or location
+
+$\beta_0$ = the intercept value (the value of y if all IVs are zero)
+
+$\beta_1, \beta_2,\dots,\beta_p$ = the slope coefficient of independent variables
+
+$X_{1i}, X_{2i}\dots,X_{pi}$ = The value of the independent variable at the $i$th observation or location
+
+$\varepsilon_i$ = The error value (or residual) at the $i$th observation or location
+
+Multivariate regressions returns coefficient values that represent the slope of the line for each independent variable *if all other variables were to remain constant*. It isolates the effect of each IV to provide a mechanism by which to predict how a change in one IV would affect the DV.
+
+Let's take a look at what this means in practice. We're going to go back to the model we created earlier and look at the effect of education deprivation on income deprivation but this time we are also going to add employment deprivation as an explanatory (or independent) variable.
+
+```{r multivariate}
+
+multi_mod <- lm(formula = IncScore ~ EduScore + EmpScore, data = IMD_2019)
+
+summary(multi_mod)
+
+```
+
+The output of the model summary is very similar to a univariate model just with extra variables in the coefficients table. We can see that all of our p-values are significant, so our model overall is significant and each of our IVs are statistically significantly contributing to the variation in our DV.
+
+This time we have an adjusted R-squared value of 0.918 - indicating that 91.8% of the variation in our DV can be explained by the IVs in our model. That is a considerable improvement on the 69.6% of the previous univariate model.
+
+The intercept has moved to be -0.00342. The coefficient of EduScore is now 0.000729, meaning that a 1 unit change in the education score results in a 0.000729 change in the income deprivation score, in the same direction, when all other variables are held constant. We can also interpret the additional IV, employment deprivation score. This has a coefficient of 1.158 meaning that a 1 unit change in the employment deprivation score results in a 1.158 unit change in the income deprivation score, in the same direction, with all other variables being held constant. Again, this is a positive relationship, as the IV increases so will the DV.
+
+We can once again plot some diagnostic plots for these models to see the spread of the residuals.
+
+```{r multi diagnostics}
+
+IMD_2019 <- IMD_2019 %>%
+   mutate(
+     predicted_multi = fitted(multi_mod),
+     residuals_multi = resid(multi_mod)
+   )
+ 
+Multi_Resids <- ggplot(IMD_2019, aes(x = residuals_multi)) +
+  geom_density(alpha = 0.4) +
+   labs(
+     title = "Residual Distribution",
+     x = "Residual",
+     y = "Density",
+   ) +
+   theme_minimal()
+
+Multi_rvf <- ggplot(IMD_2019, aes(x = predicted_multi, y = residuals_multi)) +
+   geom_point(alpha = 0.5) +
+   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+   theme_minimal() +
+   labs(
+     title = "Residuals vs Fitted Values",
+     x = "Fitted Values (Predicted Y)",
+     y = "Residuals (eᵢ)"
+   )
+
+plot_grid(Multi_Resids, Multi_rvf, ncol = 1)
+```
+
+This model has the residual density peak on zero and is much more symmetrical and the residuals vs fitted plot also shows that the model is homoskedastic - or that the error is roughly equal at both ends of the x-axis
+
+### Mapping residuals and Spatial Dependence
+
+As touched on in the lecture, Linear Regression has a number of assumptions that should be met for reliable application. One of these is that the data is independent - an assumption that spatial data often violates. Although we *can* apply a linear regression model on spatial data, we should always check that the residuals of the model do not exhibit spatial autocorrelation. If they do that tells us that the model is systematically under-predicting in some places and over-predicting in others.
+
+The first way to identify spatial patterning in the residuals of a model is to plot them.
+
+```{r plot resids}
+
+ggplot(IMD_2019, aes(fill = residuals_multi)) +
+  geom_sf(color = NA) +
+  scale_fill_gradientn(
+    colours = brewer.pal(11, "RdYlBu"),
+    values = rescale(quantile(IMD_2019$residuals_multi,
+                              probs = seq(0, 1, length.out = 11),
+                              na.rm = TRUE)),
+    name = "Residuals"
+  ) +
+  theme_minimal() +
+    labs(
+    title = "Residuals of Multivariate Regression Model",
+    subtitle = "EduScore and EmpScore predicting IncScore",
+    caption = "Source: data.gov.uk"
+  ) 
+
+```
+
+In this map we can see that areas of dark blue and dark red are often clustered together, in particular around London (positive residuals - model is under predicting in these areas) and the east coast of England (negative residuals - model is over predicting in these areas).
+
+To test whether this spatial pattern is statistically relevant we need to calculate the Moran's I statistic on the residuals as you did with Rich last time.
+
+```{r morans I}
+if(!("spdep" %in% installed)) install.packages("spdep", dependencies = TRUE)
+require(spdep)
+
+neighbours <- poly2nb(IMD_2019, snap = 1)
+
+spweight <- nb2listw(neighbours, zero.policy = TRUE)
+
+moran <- moran.test(IMD_2019$residuals_multi, spweight)
+moran
+
+z <- c(-1.96, 1.96)
+round(moran$estimate[1]  + z * sqrt(moran$estimate[3]), 3)
+
+between(moran$estimate[2], 0.489, 0.501)
+```
+
+As with Rich's example from the previous week we have created a neighbours list, calculated a standardised weights matrix, calculated the Moran's I statistic, calculated the confidence intervals and determined that the expected value is not between within the confidence values. This tells us that positive spatial autocorrelation exists within our residuals and therefore the results of a standard OLS linear regression model are not robust. We need to consider a way to manage the spatial autocorrelation within our model to ensure our predictions are valid across all locations.
+
+Join Rich again in week 9 to begin discussing Geographically Weighted Regression!
+
+## Follow Up Exercise
+
+For this short follow-up exercise, **create a *simple* R markdown file** (I suggest in HTML output format) that, when *knit*ted, includes the code and output for the following exercise.
+
+The data you are being asked to analyse contains violent crime data for all of the Lower Super Output Areas (LSOAs) of London as well as some deprivation and demographic data for the populations of those LSOAs. Your tasks are as follows:
+
+-   **To download the following zipped folder and read the shapefile into R**: <https://github.com/BeckyCollinsBris/Mapping-and-Modelling-in-R---Intro-to-Statistics/raw/refs/heads/main/IMD_Crimezip.zip>
+
+-   **To calculate some simple descriptive statistics of the dependent variable "Crime_rate"**
+
+-   **To produce a cloropleth map of the dependent variable "Crime_rate"** using your experiences from previous practicals
+
+-   **To carry out a Spearmans correlation test between "Crime_rate" and the percentage of the population under the age of 23.** Produce a scatter plot of the two variables against one another to accompany your pearson correlation and provide a short paragraph of interpretation.
+
+-   **To create a univariate regression model of "Crime_rate" against the percentage of the population under the age of 23**. Provide a paragraph of interpretation describing the intercept, slope estimate, R-squared value and p-value of the model.
+
+-   **To create a multivariate regression model of "Crime_rate" against your choice of 3 variables from the dataset.** Provide two paragraphs of accompanying text. One to describe why you have chosen those variables and a second to interpret the outcomes of your model
+
+The variable names have limits on their length so they are not always informative - a brief description of each variable is given below to help you achieve the above tasks.
+
+LSOA - Lower Super Output Area - An administrative boundary used in the UK to provide a consistent geographical basis for collecting and reporting small-area statistics, such as those from the census.
+
+Population - The population of this LSOA in 2019
+
+Percent_ov - The percentage of the population over 65
+
+Social_Ren - The percentage of the population living in social rented (or "council") housing
+
+MEAN_INCOM - The mean income of that LSOA in 2019
+
+MEDIAN_INC - The median income of that LSOA in 2019
+
+Crime_rate - The number of violent crimes per 1000 people recorded in 2019
+
+IMD_RANK - The combined Index of Multiple Deprivation rank for that LSOA in 2019 (the lower the value the more deprived the area)
+
+EMPLOYME_1 - The rank for that LSOA in 2019 based on the employment deprivation component of the IMD (the lower the value the more deprived the area)
+
+EDUCATIO_1 - The rank for that LSOA in 2019 based on the education deprivation component of the IMD (the lower the value the more deprived the area)
+
+Percent_U2 - The percentage of the population below 23
